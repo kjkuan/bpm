@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+#
+# BPM (Bash Process Manager) is a simple process runner / manager inspired by
+# [Foreman] and tools alike. It is built based on Bash's job / process management
+# capability.
+#
+# [Foreman]: https://github.com/ddollar/foreman
+#
+# TODO: 
+#   - add an option for adding timestamps to log lines
+#   - flock to prevent running more than one bpm server process per FIFO at a time
+#   - allow user-defined log-tailing command, e.g., using lnav
+#
+# MAYBE:
+#   - Allow reloading Procfile.sh without restarting the server
+
+
+show-usage () {
+    cat <<EOF
+Usage: ${0##*/} [options] [command ...]
+
+Options:
+    -f  PATH   Path to the Procfile.sh to use.
+
+Commands:
+    list
+        Lists the processes defined in Procfile.sh along with their current statuses.
+
+    start [NAME_1 NAME_2 ...]
+        Starts the named processes (Proc/NAME_1, ...), which are defined in Procfile.sh.
+        Starts all defined processes if the names are omitted.
+
+    stop [-s SIGNAL] [NAME_1 NAME_2 ...]
+        Stops (kill) the named processes with SIGNAL (defaults to the TERM signal).
+        Stops all started and running processes if the names are omitted.
+
+EOF
+}
+
+# For some reason, running in bash interactive mode seems to be needed to have enough
+# time to be able to wait for pids after they are killed.
+if [[ $- != *i* ]]; then
+    exec bash --noediting --noprofile --norc -i "$0" "$@"
+fi
+shopt -u expand_aliases extglob histappend
+set +mH
+
+die () { echo "$@" >&2; exit 1; }
+
+PROCFILE=$PWD/Procfile.sh
+ALLOWED_SIGNALS="INT|TERM|KILL"
+
+OPTIND=1
+while getopts 'hf:' option; do
+    case $option in
+        h) show-usage; exit ;;
+        f) PROCFILE=$(cd "${OPTARG%/*}" && pwd)/${OPTARG##*/} ;;
+        *) exit 1 ;;
+    esac
+done
+unset -v option
+shift $(( OPTIND - 1 ))
+
+[[ -e $PROCFILE ]] || die "Procfile not found: $PROCFILE" 
+
+CMD_FIFO=${PROCFILE%/*}/.bpmfifo
+
+send () { printf "%s\n" "$*" > "$CMD_FIFO"; }
+
+if [[ -e $CMD_FIFO ]]; then
+# --- Running as a client ----------------
+    send "$*"
+    response=$(cat "$CMD_FIFO")
+    printf "%s\n" "${response%$'\n'*}"
+    exit "${response##*$'\n'}"
+fi
+
+# --- Running as a server ----------------
+
+declare -A PIDS=()  # process_name -> pid
+declare -A PROCS=() # process_name@attr_name -> value
+
+# To be initialized by load-procs
+declare -A PROC_COLORS
+PROC_MAX_WIDTH=
+
+SHUTDOWN=
+EXIT_CMDS=()
+
+on-exit () {
+    local i
+    for ((i=${#EXIT_CMDS[@]}-1; i >= 0; i--)); do
+        eval "${EXIT_CMDS[i]}"
+    done
+}
+trap on-exit EXIT
+
+mkfifo -m 0600 "$CMD_FIFO" || exit
+EXIT_CMDS+=('rm -f "$CMD_FIFO"')
+
+RESPONSE=()
+log () { RESPONSE+=("$*"); }
+reply () {
+    local rc=$? oIFS=$IFS
+    IFS=$'\n'
+    printf "%s\n%d\n" "${RESPONSE[*]}" "${1:-$rc}" > "$CMD_FIFO" 2>&1
+    IFS=$oIFS
+    RESPONSE=()
+    return $rc
+}
+
+load-procs () {
+    local procs
+    eval "$(
+        source "$PROCFILE" >/dev/null
+        procs=$(declare -F | cut -d' ' -f3 | grep ^Proc/)
+        if [[ $procs ]]; then
+            set -f; error=
+            for name in $procs; do
+                ! [[ $name =~ [*?] ]] || { error=x; echo "Invalid process name: $name" >&2; }
+            done
+            [[ ! $error ]] || die "Failed loading $PROCFILE"
+            declare -f $procs
+            declare -p procs
+        fi
+    )"
+    procs=$(echo "$procs" | cut -d/ -f2)
+    [[ $procs ]] || return 0
+
+    local name color colors=$(
+        count=0; [[ ! $procs ]] || count=$(wc -l <<<"$procs")
+
+        # Remove some dark colors for better visibility
+        (seq 0 255; printf '%d\n' 0 8 {18..21} {52..57} {88..90} {232..242}) \
+          | sort | uniq -u | shuf | head -n $count
+        #
+        # NOTE: To see all 256 ANSI color codes:
+        # for code in {0..255}; do echo -e "\e[38;5;${code}m"'\\e[38;5;'"$code"m"\e[0m"; done
+    )
+    while read -r name color; do
+        PROC_COLORS[$name]=$color
+    done < <(paste <(echo "$procs") <(echo "$colors"))
+
+    PROC_MAX_WIDTH=$(echo "$procs |" | column -t | tail -n1 | cut -d\| -f1 | wc -c)
+}
+
+
+start-process () {
+    local name=${1:?} pid=${PIDS[$1]:-}
+
+    declare -F "Proc/$name" >/dev/null || {
+        log "Unknown process name: $name"
+        return 1
+    }
+
+    # Process was not started, or has completed;
+    [[ ! $pid || ${PROCS[$name@status]:-} ]] || { # otherwise
+        log "Process $name ($pid) was already started; please stop it first."
+        return 0
+    }
+
+    local log_prefix=$(printf "%-${PROC_MAX_WIDTH:-20}s| " "$name")
+    log_prefix=$(echo -e "\e[38;5;${PROC_COLORS[$name]}m${log_prefix}\e[0m")
+
+    set -m
+    "Proc/$name" </dev/null 2>&1 | sed -u "s/^/$log_prefix/" > "$LOG_DIR/$name.log" &
+    jobs -x printf -v pid %%
+    set +m
+
+    log "Started $name ($pid)"
+
+    PIDS[$name]=$pid
+    PROCS[$name@status]=
+}
+
+stop-process () {
+    local signal=TERM
+    if [[ $1 == -s ]]; then
+        signal=${2:?'Missing the SIGNAL argument for option: -s'}
+        signal=${signal^^}
+        [[ $signal == @($ALLOWED_SIGNALS) ]] || die "Only $ALLOWED_SIGNALS is allowed as a stop signal."
+        set -- "${@:3}"
+    fi
+    local name=${1:?} pid=${PIDS[$1]:-}
+
+    declare -F "Proc/$name" >/dev/null || {
+        log "Unknown process name: $name"
+        return 1
+    }
+    [[ $pid ]] || {
+        log "Process $name was not started."
+        return 0
+    }
+    if [[ ${PROCS[$name@status]:-} ]]; then
+        log "Process $name ($pid) was already stopped."
+        return 0
+    fi
+    #
+    # NOTE: Chances are we have already waited for the process in the
+    #       SIGCHLD handler (wait-for-pid). Therefore, it's unlikely that
+    #       we'll be killing a reused PID next.
+    #
+    kill -s $signal -$pid; rc=$?
+
+    if (( ! $rc )) || is-pid-gone $pid; then
+        wait $pid; rc=$?; PROCS[$name@status]=$rc
+        log "Process $name ($pid) stopped."
+    else
+        log "Failed stopping $name ($pid)."
+    fi
+    return $rc
+}
+
+is-pid-gone () {
+    local timeout=${timeout:-5}
+    while kill -0 -${1:?} >/dev/null 2>&1; do
+        (( timeout-- > 0 )) && sleep 1 || return 1 # timed out
+    done
+    return 0 #  no pids are part of the process group
+}
+
+list-all () { declare -F | cut -d' ' -f3 | grep ^Proc/ | cut -d/ -f2; } 2>&1
+
+list-all-status () {
+    local report=$(
+        list-all \
+          |
+        while read -r name; do
+            line=("$name") pid=${PIDS[$name]:-} status=${PROCS[$name@status]:-}
+            if [[ $pid ]]; then 
+                line+=("pid=$pid")
+            else
+                line+=(-)
+            fi
+            if [[ $status ]]; then
+                line+=("Exited ($status)")
+            fi
+            (IFS=\;; echo "${line[*]}")
+        done \
+         |
+        column -s \; -t
+    )
+    log "$report"
+}
+
+start-all () {
+    local name names; (( $# )) && names="$*" || names=$(list-all)
+    for name in $names; do start-process "$name"; done
+}
+
+stop-all () {
+    local name names; (( $# )) && names="$*" || names=$(list-all)
+    for name in $names; do stop-process "$name"; done
+}
+
+display-logs () {
+    local name log_files=()
+    for name in $(list-all); do log_files+=("$LOG_DIR/$name.log"); done
+    exec tail -qF "${log_files[@]}" 2>/dev/null
+}
+
+wait-for-procs () {
+    local name pid
+    for name in "${!PIDS[@]}"; do
+        pid=${PIDS[$name]}
+        if ! kill -0 $pid >/dev/null 2>&1 && [[ ! ${PROCS[$name@status]:-} ]]; then
+            echo "Process $name ($pid) was terminated." >&2
+            wait $pid >/dev/null 2>&1
+            PROCS[$name@status]=$?
+        fi
+    done
+}
+
+trap 'SHUTDOWN=x; stop-all; cat "$CMD_FIFO" & reply; exit' INT
+
+LOG_DIR=$(mktemp -d) || die "Failed creating a temporary logging directory!"
+echo "Logging to $LOG_DIR ..."
+EXIT_CMDS+=('rm -rf "$LOG_DIR"')
+
+# DEBUG:
+# exec {BASH_XTRACEFD}>bpm.trace; set -x
+
+load-procs
+
+display-logs & tail_pid=$!
+EXIT_CMDS+=('kill $tail_pid >/dev/null 2>&1')
+
+
+action= args=
+if (( $# )); then
+    action=$1 args=${*:2}
+    cat "$CMD_FIFO" &
+fi
+
+trap wait-for-procs CHLD
+
+until [[ $SHUTDOWN ]]; do
+    [[ $action ]] || {
+        read -r action args < "$CMD_FIFO"
+        
+        [[ $action ]] || { reply; continue; }
+    }
+    case $action in
+        start|stop)
+            $action-all $args; reply
+            ;;
+        list)
+            list-all-status; reply 0
+            ;;
+        *) log "Unknown command: $action $args"; reply 1
+            ;;
+    esac
+    action= args=
+done
