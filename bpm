@@ -7,8 +7,6 @@
 # [Foreman]: https://github.com/ddollar/foreman
 #
 # TODO: 
-#   - add an option for adding timestamps to log lines
-#   - flock to prevent running more than one bpm server process per FIFO at a time
 #   - allow user-defined log-tailing command, e.g., using lnav
 #
 # MAYBE:
@@ -20,15 +18,16 @@ show-usage () {
 Usage: ${0##*/} [options] [command ...]
 
 Options:
-    -f  PATH   Path to the Procfile.sh to use.
+    -f  PATH   Path to the Procfile.sh to use. Default is ./Procfile.sh if omitted.
 
 Commands:
     list
         Lists the processes defined in Procfile.sh along with their current statuses.
 
-    start [NAME_1 NAME_2 ...]
+    start [-t] [NAME_1 NAME_2 ...]
         Starts the named processes (Proc/NAME_1, ...), which are defined in Procfile.sh.
         Starts all defined processes if the names are omitted.
+        If -t is specified, each log line will be prefixed with a timestamp.
 
     stop [-s SIGNAL] [NAME_1 NAME_2 ...]
         Stops (kill) the named processes with SIGNAL (defaults to the TERM signal).
@@ -49,6 +48,9 @@ die () { echo "$@" >&2; exit 1; }
 
 PROCFILE=$PWD/Procfile.sh
 ALLOWED_SIGNALS="INT|TERM|KILL"
+
+OPT_TIMESTAMP=
+OPT_SIGNAL=TERM
 
 OPTIND=1
 while getopts 'hf:' option; do
@@ -160,10 +162,18 @@ start-process () {
     }
 
     local log_prefix=$(printf "%-${PROC_MAX_WIDTH:-20}s| " "$name")
-    log_prefix=$(echo -e "\e[38;5;${PROC_COLORS[$name]}m${log_prefix}\e[0m")
 
     set -m
-    "Proc/$name" </dev/null 2>&1 | sed -u "s/^/$log_prefix/" > "$LOG_DIR/$name.log" &
+    "Proc/$name" </dev/null 2>&1 \
+         |
+    (color_on=$(echo -e "\e[38;5;${PROC_COLORS[$name]}m")
+     color_off=$(echo -e "\e[0m")
+     while IFS= read -r line; do
+         [[ ! $OPT_TIMESTAMP ]] || printf -v time '%(%T)T' -1
+         line_prefix=${color_on}${time:+$time }${log_prefix}${color_off}
+         printf '%s%s\n' "$line_prefix" "$line"
+     done
+    ) > "$LOG_DIR/$name.log" &
     jobs -x printf -v pid %%
     set +m
 
@@ -174,13 +184,6 @@ start-process () {
 }
 
 stop-process () {
-    local signal=TERM
-    if [[ $1 == -s ]]; then
-        signal=${2:?'Missing the SIGNAL argument for option: -s'}
-        signal=${signal^^}
-        [[ $signal == @($ALLOWED_SIGNALS) ]] || die "Only $ALLOWED_SIGNALS is allowed as a stop signal."
-        set -- "${@:3}"
-    fi
     local name=${1:?} pid=${PIDS[$1]:-}
 
     declare -F "Proc/$name" >/dev/null || {
@@ -200,7 +203,7 @@ stop-process () {
     #       SIGCHLD handler (wait-for-pid). Therefore, it's unlikely that
     #       we'll be killing a reused PID next.
     #
-    kill -s $signal -$pid; rc=$?
+    kill -s $OPT_SIGNAL -$pid; rc=$?
 
     if (( ! $rc )) || is-pid-gone $pid; then
         wait $pid; rc=$?; PROCS[$name@status]=$rc
@@ -226,6 +229,7 @@ list-all-status () {
         list-all \
           |
         while read -r name; do
+            [[ $name ]] || continue
             line=("$name") pid=${PIDS[$name]:-} status=${PROCS[$name@status]:-}
             if [[ $pid ]]; then 
                 line+=("pid=$pid")
@@ -244,11 +248,20 @@ list-all-status () {
 }
 
 start-all () {
+    local OPT_TIMESTAMP=
+    if [[ ${1:-} && $1 == -t ]]; then OPT_TIMESTAMP=x; shift; fi
     local name names; (( $# )) && names="$*" || names=$(list-all)
     for name in $names; do start-process "$name"; done
 }
 
 stop-all () {
+    local OPT_SIGNAL=TERM
+    if [[ $1 == -s ]]; then
+        OPT_SIGNAL=${2:?'Missing the SIGNAL argument for option: -s'}
+        OPT_SIGNAL=${OPT_SIGNAL^^}
+        [[ $OPT_SIGNAL == @($ALLOWED_SIGNALS) ]] || die "Only $ALLOWED_SIGNALS is allowed as a stop signal."
+        set -- "${@:3}"
+    fi
     local name names; (( $# )) && names="$*" || names=$(list-all)
     for name in $names; do stop-process "$name"; done
 }
@@ -278,7 +291,7 @@ echo "Logging to $LOG_DIR ..."
 EXIT_CMDS+=('rm -rf "$LOG_DIR"')
 
 # DEBUG:
-# exec {BASH_XTRACEFD}>bpm.trace; set -x
+#exec {BASH_XTRACEFD}>bpm.trace; set -x
 
 load-procs
 
