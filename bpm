@@ -144,6 +144,7 @@ load-procs () {
     done < <(paste <(echo "$procs") <(echo "$colors"))
 
     PROC_MAX_WIDTH=$(echo "$procs |" | column -t | tail -n1 | cut -d\| -f1 | wc -c)
+    PROC_MAX_WIDTH=$(( PROC_MAX_WIDTH - 2 ))
 }
 
 
@@ -273,6 +274,10 @@ display-logs () {
 }
 
 wait-for-procs () {
+    trap wait-for-procs CHLD
+    # NOTE: needed to avoid a race condition in Bash that shows a warning like:
+    # bash: warning: run_pending_traps: bad value in trap_list[20]: 0x1007f056c
+
     local name pid
     for name in "${!PIDS[@]}"; do
         pid=${PIDS[$name]}
