@@ -75,6 +75,10 @@ if [[ -e $CMD_FIFO ]]; then
     response=$(cat "$CMD_FIFO")
     printf "%s\n" "${response%$'\n'*}"
     exit "${response##*$'\n'}"
+
+elif [[ $1 != start ]]; then
+    echo "No process has been started by BPM. Please start one first." >&2
+    exit 1
 fi
 
 # --- Running as a server ----------------
