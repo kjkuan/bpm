@@ -6,7 +6,7 @@
 #
 # [Foreman]: https://github.com/ddollar/foreman
 #
-# TODO: 
+# TODO:
 #   - allow user-defined log-tailing command, e.g., using lnav
 #
 # MAYBE:
@@ -47,6 +47,9 @@ set +mH
 die () { echo "$@" >&2; exit 1; }
 
 PROCFILE=$PWD/Procfile.sh
+declare -A PROC_COLORS
+PROC_MAX_WIDTH=
+
 ALLOWED_SIGNALS="INT|TERM|KILL"
 
 OPT_TIMESTAMP=
@@ -63,11 +66,7 @@ done
 unset -v option
 shift $(( OPTIND - 1 ))
 
-[[ -e $PROCFILE ]] || die "Procfile not found: $PROCFILE" 
-
-# To be initialized by load-procs
-declare -A PROC_COLORS
-PROC_MAX_WIDTH=
+[[ -e $PROCFILE ]] || die "Procfile not found: $PROCFILE"
 
 load-procs () {
     local procs
@@ -110,15 +109,17 @@ list-all () { declare -F | cut -d' ' -f3 | grep ^Proc/ | cut -d/ -f2; } 2>&1
 CMD_FIFO=${PROCFILE%/*}/.bpmfifo
 send () { printf "%s\n" "$*" > "$CMD_FIFO"; }
 
-if [[ -e $CMD_FIFO ]]; then
 # --- Running as a client ----------------
+if [[ -e $CMD_FIFO ]]; then
     send "$*"
     response=$(cat "$CMD_FIFO")
     printf "%s\n" "${response%$'\n'*}"
     exit "${response##*$'\n'}"
 
 elif [[ $1 == list ]]; then
-    list-all; exit
+    list-all
+    exit
+
 elif [[ $1 != start ]]; then
     echo "No process has been started by BPM. Please start one first." >&2
     exit 1
@@ -128,7 +129,6 @@ fi
 
 declare -A PIDS=()  # process_name -> pid
 declare -A PROCS=() # process_name@attr_name -> value
-
 
 SHUTDOWN=
 EXIT_CMDS=()
@@ -154,8 +154,6 @@ reply () {
     RESPONSE=()
     return $rc
 }
-
-
 
 
 start-process () {
@@ -240,7 +238,7 @@ list-all-status () {
         while read -r name; do
             [[ $name ]] || continue
             line=("$name") pid=${PIDS[$name]:-} status=${PROCS[$name@status]:-}
-            if [[ $pid ]]; then 
+            if [[ $pid ]]; then
                 line+=("pid=$pid")
             else
                 line+=(-)
@@ -321,7 +319,7 @@ trap wait-for-procs CHLD
 until [[ $SHUTDOWN ]]; do
     [[ $action ]] || {
         read -r action args < "$CMD_FIFO"
-        
+
         [[ $action ]] || { reply; continue; }
     }
     case $action in
