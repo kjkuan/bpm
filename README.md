@@ -31,3 +31,6 @@ Then, in another shell, we can check the process statuses, as well as, starting 
 
     # Stop all processes
     ./bpm stop
+
+Also, one can hit `Ctrl-C` in the log output window, where the first process was started,
+to stop all processes and quit the **BPM** monitoring process.

@@ -65,55 +65,9 @@ shift $(( OPTIND - 1 ))
 
 [[ -e $PROCFILE ]] || die "Procfile not found: $PROCFILE" 
 
-CMD_FIFO=${PROCFILE%/*}/.bpmfifo
-
-send () { printf "%s\n" "$*" > "$CMD_FIFO"; }
-
-if [[ -e $CMD_FIFO ]]; then
-# --- Running as a client ----------------
-    send "$*"
-    response=$(cat "$CMD_FIFO")
-    printf "%s\n" "${response%$'\n'*}"
-    exit "${response##*$'\n'}"
-
-elif [[ $1 != start ]]; then
-    echo "No process has been started by BPM. Please start one first." >&2
-    exit 1
-fi
-
-# --- Running as a server ----------------
-
-declare -A PIDS=()  # process_name -> pid
-declare -A PROCS=() # process_name@attr_name -> value
-
 # To be initialized by load-procs
 declare -A PROC_COLORS
 PROC_MAX_WIDTH=
-
-SHUTDOWN=
-EXIT_CMDS=()
-
-on-exit () {
-    local i
-    for ((i=${#EXIT_CMDS[@]}-1; i >= 0; i--)); do
-        eval "${EXIT_CMDS[i]}"
-    done
-}
-trap on-exit EXIT
-
-mkfifo -m 0600 "$CMD_FIFO" || exit
-EXIT_CMDS+=('rm -f "$CMD_FIFO"')
-
-RESPONSE=()
-log () { RESPONSE+=("$*"); }
-reply () {
-    local rc=$? oIFS=$IFS
-    IFS=$'\n'
-    printf "%s\n%d\n" "${RESPONSE[*]}" "${1:-$rc}" > "$CMD_FIFO" 2>&1
-    IFS=$oIFS
-    RESPONSE=()
-    return $rc
-}
 
 load-procs () {
     local procs
@@ -150,6 +104,58 @@ load-procs () {
     PROC_MAX_WIDTH=$(echo "$procs |" | column -t | tail -n1 | cut -d\| -f1 | wc -c)
     PROC_MAX_WIDTH=$(( PROC_MAX_WIDTH - 2 ))
 }
+load-procs
+list-all () { declare -F | cut -d' ' -f3 | grep ^Proc/ | cut -d/ -f2; } 2>&1
+
+CMD_FIFO=${PROCFILE%/*}/.bpmfifo
+send () { printf "%s\n" "$*" > "$CMD_FIFO"; }
+
+if [[ -e $CMD_FIFO ]]; then
+# --- Running as a client ----------------
+    send "$*"
+    response=$(cat "$CMD_FIFO")
+    printf "%s\n" "${response%$'\n'*}"
+    exit "${response##*$'\n'}"
+
+elif [[ $1 == list ]]; then
+    list-all; exit
+elif [[ $1 != start ]]; then
+    echo "No process has been started by BPM. Please start one first." >&2
+    exit 1
+fi
+
+# --- Running as a server ----------------
+
+declare -A PIDS=()  # process_name -> pid
+declare -A PROCS=() # process_name@attr_name -> value
+
+
+SHUTDOWN=
+EXIT_CMDS=()
+
+on-exit () {
+    local i
+    for ((i=${#EXIT_CMDS[@]}-1; i >= 0; i--)); do
+        eval "${EXIT_CMDS[i]}"
+    done
+}
+trap on-exit EXIT
+
+mkfifo -m 0600 "$CMD_FIFO" || exit
+EXIT_CMDS+=('rm -f "$CMD_FIFO"')
+
+RESPONSE=()
+log () { RESPONSE+=("$*"); }
+reply () {
+    local rc=$? oIFS=$IFS
+    IFS=$'\n'
+    printf "%s\n%d\n" "${RESPONSE[*]}" "${1:-$rc}" > "$CMD_FIFO" 2>&1
+    IFS=$oIFS
+    RESPONSE=()
+    return $rc
+}
+
+
 
 
 start-process () {
@@ -227,8 +233,6 @@ is-pid-gone () {
     return 0 #  no pids are part of the process group
 }
 
-list-all () { declare -F | cut -d' ' -f3 | grep ^Proc/ | cut -d/ -f2; } 2>&1
-
 list-all-status () {
     local report=$(
         list-all \
@@ -301,8 +305,6 @@ EXIT_CMDS+=('rm -rf "$LOG_DIR"')
 
 # DEBUG:
 #exec {BASH_XTRACEFD}>bpm.trace; set -x
-
-load-procs
 
 display-logs & tail_pid=$!
 EXIT_CMDS+=('kill $tail_pid >/dev/null 2>&1')
