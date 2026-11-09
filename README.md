@@ -133,3 +133,24 @@ for one stopped with `TERM` (128 + the signal number), or the status it exited w
 Each process logs to `NAME.log` in a temporary directory, shown when the server
 starts (`Logging to ...`), which is removed when the server exits. Restarting a
 process starts its log afresh.
+
+Use `bpm logs [NAME...]` to follow the logs (see `BPM_LOG_VIEWER` below), or
+`bpm logs -p [NAME...]` to print the log files' paths, e.g., for other tools.
+
+## Environment variables
+
+- `BPM_STOP_TIMEOUT`: seconds to give a process to exit after the stop signal
+  before killing it with `KILL` (default: 5). It's read by the server, once, when
+  it starts, so set it for `bpm start`:
+
+      BPM_STOP_TIMEOUT=10 ./bpm start
+
+- `BPM_LOG_VIEWER`: the command `bpm logs` follows the logs with, given the log
+  files as arguments (default: `tail -qF`). It's read by `bpm logs` itself, so it
+  can differ from one call to the next:
+
+      BPM_LOG_VIEWER=lnav ./bpm logs web worker
+
+  It's split into words on whitespace, and quotes in it aren't honored:
+  `BPM_LOG_VIEWER='less +F'` works, but an argument containing spaces can't be
+  given. For anything more involved, point it at a small wrapper script.

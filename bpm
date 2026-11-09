@@ -52,7 +52,8 @@ Environment:
 
     BPM_LOG_VIEWER
         The command to follow logs with, given the log files as arguments
-        (default: tail -qF). E.g., BPM_LOG_VIEWER=lnav.
+        (default: tail -qF). E.g., BPM_LOG_VIEWER=lnav. Read by the logs command.
+        It's split into words on whitespace; quotes in it aren't honored.
 
 EOF
 }
