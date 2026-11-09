@@ -263,6 +263,8 @@ stop-process () {
     #       SIGCHLD handler (wait-for-pid). Therefore, it's unlikely that
     #       we'll be killing a reused PID next.
     #
+    # Tell the SIGCHLD handler (wait-for-procs) to leave this process to us.
+    PROCS[$name@stopping]=x
     kill -s $OPT_SIGNAL -$pid; local rc=$?
 
     if (( ! $rc )) || is-pid-gone $pid; then
@@ -272,6 +274,7 @@ stop-process () {
     else
         log "Failed stopping $name ($pid)."
     fi
+    PROCS[$name@stopping]=
     return $rc
 }
 
@@ -343,6 +346,7 @@ wait-for-procs () {
 
     local name pid
     for name in "${!PIDS[@]}"; do
+        [[ ! ${PROCS[$name@stopping]:-} ]] || continue  # stop-process waits for it
         pid=${PIDS[$name]}
         if ! kill -0 $pid >/dev/null 2>&1 && [[ ! ${PROCS[$name@status]:-} ]]; then
             echo "Process $name ($pid) was terminated." >&2
