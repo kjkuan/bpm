@@ -172,11 +172,16 @@ mkfifo -m 0600 "$CMD_FIFO" || exit
 EXIT_CMDS+=('rm -f "$CMD_FIFO"')
 
 RESPONSE=()
+REPLY_LOCAL=  # set when the command comes from the server itself, not a client
 log () { RESPONSE+=("$*"); }
 reply () {
     local rc=$? oIFS=$IFS
     IFS=$'\n'
-    printf "%s\n%d\n" "${RESPONSE[*]}" "${1:-$rc}" > "$CMD_FIFO" 2>&1
+    if [[ $REPLY_LOCAL ]]; then
+        (( ! ${#RESPONSE[@]} )) || printf "%s\n" "${RESPONSE[*]}"
+    else
+        printf "%s\n%d\n" "${RESPONSE[*]}" "${1:-$rc}" > "$CMD_FIFO" 2>&1
+    fi
     IFS=$oIFS
     RESPONSE=()
     return $rc
@@ -347,7 +352,7 @@ wait-for-procs () {
     done
 }
 
-trap 'SHUTDOWN=x; stop-all; cat "$CMD_FIFO" & reply; exit' INT
+trap 'SHUTDOWN=x REPLY_LOCAL=x; stop-all; reply; exit' INT
 
 LOG_DIR=$(mktemp -d) || die "Failed creating a temporary logging directory!"
 echo "Logging to $LOG_DIR ..."
@@ -365,8 +370,7 @@ EXIT_CMDS+=('sleep 1; kill $tail_pid >/dev/null 2>&1')
 
 action= args=
 if (( $# )); then
-    action=$1 args=${*:2}
-    cat "$CMD_FIFO" &
+    action=$1 args=${*:2} REPLY_LOCAL=x
 fi
 
 trap wait-for-procs CHLD
@@ -387,5 +391,5 @@ until [[ $SHUTDOWN ]]; do
         *) log "Unknown command: $action $args"; reply 1
             ;;
     esac
-    action= args=
+    action= args= REPLY_LOCAL=
 done
