@@ -50,6 +50,11 @@ Environment:
         Seconds to wait for a process to stop before killing it (default: 5).
         Read when the server starts.
 
+    BPM_LOG_DIR
+        A directory to write the logs to, and keep them in; processes append to
+        their logs there. By default, logs go to a temporary directory that's
+        removed when the server exits. Read when the server starts.
+
     NO_COLOR
         If set (to anything), log lines aren't colored. They aren't either when
         the server's output isn't a terminal.
@@ -312,6 +317,10 @@ start-process () {
 
     local log_prefix=$(printf "%-${PROC_MAX_WIDTH:-20}s| " "$name")
 
+    # A restarted process' log starts afresh, unless logs are kept
+    # (BPM_LOG_DIR), in which case it's appended to.
+    [[ $KEEP_LOGS ]] || : > "$LOG_DIR/$name.log"
+
     set -m
     run-proc "$name" </dev/null 2>&1 \
          |
@@ -331,7 +340,7 @@ start-process () {
          line_prefix=${color_on}${time:+$time }${log_prefix}${color_off}
          printf '%s%s\n' "$line_prefix" "$line"
      done
-    ) > "$LOG_DIR/$name.log" &
+    ) >> "$LOG_DIR/$name.log" &
     jobs -x printf -v pid %%
     set +m
 
@@ -576,14 +585,24 @@ trap shutdown INT HUP TERM
 USE_COLOR=
 [[ ! -t 1 || ${NO_COLOR:-} ]] || USE_COLOR=x
 
-LOG_DIR=$(mktemp -d) || die "Failed creating a temporary logging directory!"
+# Logs go to BPM_LOG_DIR, if set, where they're kept (and appended to);
+# otherwise, to a temporary directory that's removed on exit.
+KEEP_LOGS=
+if [[ ${BPM_LOG_DIR:-} ]]; then
+    mkdir -p "$BPM_LOG_DIR" && LOG_DIR=$(cd "$BPM_LOG_DIR" && pwd) ||
+        die "Failed creating the logging directory: $BPM_LOG_DIR"
+    KEEP_LOGS=x
+else
+    LOG_DIR=$(mktemp -d) || die "Failed creating a temporary logging directory!"
+    EXIT_CMDS+=('rm -rf "$LOG_DIR"')
+fi
 echo "Logging to $LOG_DIR ..."
-EXIT_CMDS+=('rm -rf "$LOG_DIR"')
 
-# Create every process' log file up front, so that the paths given out by
-# `bpm logs` always exist; some log viewers (e.g., lnav) refuse to open a
-# file that doesn't, i.e., the log of a process not started yet.
-for name in $(list-all); do : > "$LOG_DIR/$name.log"; done; unset -v name
+# Create every process' log file up front (keeping existing ones' content),
+# so that the paths given out by `bpm logs` always exist; some log viewers
+# (e.g., lnav) refuse to open a file that doesn't, i.e., the log of a process
+# not started yet.
+for name in $(list-all); do : >> "$LOG_DIR/$name.log"; done; unset -v name
 
 # DEBUG:
 #exec {BASH_XTRACEFD}>bpm.trace; set -x

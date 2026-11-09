@@ -142,6 +142,10 @@ Each process logs to `NAME.log` in a temporary directory, shown when the server
 starts (`Logging to ...`), which is removed when the server exits. Restarting a
 process starts its log afresh.
 
+To keep the logs, e.g., to look into a crash afterwards, set `BPM_LOG_DIR` (see
+below): the logs then go to that directory and stay there, and processes append
+to them, across restarts and servers, instead of starting them afresh.
+
 Each log line is prefixed with the process' name, in a color of its own if the
 server's output is a terminal (and `NO_COLOR` isn't set). The colors are written
 into the log files.
@@ -156,6 +160,13 @@ Use `bpm logs [NAME...]` to follow the logs (see `BPM_LOG_VIEWER` below), or
   it starts, so set it for `bpm start`:
 
       BPM_STOP_TIMEOUT=10 ./bpm start
+
+- `BPM_LOG_DIR`: a directory to write the logs to and keep them in, instead of a
+  temporary directory removed on exit. It's created if needed, and a relative
+  path is relative to where `bpm start` is run. Processes append to their logs in
+  it. It's read by the server when it starts:
+
+      BPM_LOG_DIR=logs ./bpm start
 
 - `NO_COLOR`: if set (to anything), log lines aren't colored. They aren't either
   when the server's output isn't a terminal. See https://no-color.org.

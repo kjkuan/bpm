@@ -195,9 +195,10 @@ kill_leftover_procs () {
         pgrep -g "$pid" > /dev/null && kill -KILL -- "-$pid" 2>/dev/null
     done
     dir=$(log_dir)
-    if [[ $dir == "${TMPDIR:-/tmp}"/tmp.* && -d $dir ]]; then
+    # (A BPM_LOG_DIR in a test is under $WORK, which is removed afterwards.)
+    if [[ $dir == "${TMPDIR:-/tmp}"/tmp.* || $dir == "$WORK"/* ]] && [[ -d $dir ]]; then
         pkill -KILL -f "^tail -qF $dir/" 2>/dev/null
-        rm -rf "$dir"
+        [[ $dir == "$WORK"/* ]] || rm -rf "$dir"
     fi
     return 0
 }
