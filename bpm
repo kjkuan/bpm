@@ -131,7 +131,7 @@ fi
 if [[ -e $CMD_FIFO ]]; then
     send "$*"
     response=$(cat "$CMD_FIFO")
-    printf "%s\n" "${response%$'\n'*}"
+    [[ ! ${response%$'\n'*} ]] || printf "%s\n" "${response%$'\n'*}"
     exit "${response##*$'\n'}"
 
 elif [[ $1 == list ]]; then
@@ -329,7 +329,16 @@ stop-all () {
         }
         set -- "${@:3}"
     fi
-    local name names; (( $# )) && names="$*" || names=$(list-all)
+    local name names
+    if (( $# )); then
+        names="$*"
+    else
+        # Only the started and still running ones, as documented; this avoids
+        # "was not started" / "was already stopped" noise, e.g., on Ctrl-C.
+        for name in $(list-all); do
+            [[ ${PIDS[$name]:-} && ! ${PROCS[$name@status]:-} ]] && names+=" $name"
+        done
+    fi
     for name in $names; do stop-process "$name"; done
 }
 
@@ -337,6 +346,16 @@ display-logs () {
     local name log_files=()
     for name in $(list-all); do log_files+=("$LOG_DIR/$name.log"); done
     exec tail -qF "${log_files[@]}" 2>/dev/null
+}
+
+# Usage: describe-exit NAME PID STATUS
+describe-exit () {
+    local sig
+    if (( $3 > 128 )) && sig=$(kill -l $(( $3 - 128 )) 2>/dev/null); then
+        echo "Process $1 ($2) was killed by SIG${sig#SIG}."
+    else
+        echo "Process $1 ($2) exited ($3)."
+    fi
 }
 
 wait-for-procs () {
@@ -349,9 +368,9 @@ wait-for-procs () {
         [[ ! ${PROCS[$name@stopping]:-} ]] || continue  # stop-process waits for it
         pid=${PIDS[$name]}
         if ! kill -0 $pid >/dev/null 2>&1 && [[ ! ${PROCS[$name@status]:-} ]]; then
-            echo "Process $name ($pid) was terminated." >&2
             wait $pid >/dev/null 2>&1
             PROCS[$name@status]=$?
+            describe-exit "$name" $pid ${PROCS[$name@status]} >&2
         fi
     done
 }
