@@ -109,7 +109,21 @@ load-procs
 list-all () { declare -F | cut -d' ' -f3 | grep ^Proc/ | cut -d/ -f2; } 2>&1
 
 CMD_FIFO=${PROCFILE%/*}/.bpmfifo
+PID_FILE=${PROCFILE%/*}/.bpmpid
 send () { printf "%s\n" "$*" > "$CMD_FIFO"; }
+
+server-alive () {
+    local pid
+    { read -r pid < "$PID_FILE"; } 2>/dev/null
+    [[ $pid ]] && kill -0 "$pid" 2>/dev/null
+}
+
+# A FIFO left behind by a server that died without cleaning up (e.g., killed
+# with SIGKILL) would make every client block forever; remove it.
+if [[ -e $CMD_FIFO ]] && ! server-alive; then
+    echo "Removing stale $CMD_FIFO (the BPM server is no longer running)." >&2
+    rm -f "$CMD_FIFO" "$PID_FILE"
+fi
 
 # --- Running as a client ----------------
 if [[ -e $CMD_FIFO ]]; then
@@ -143,6 +157,10 @@ on-exit () {
 }
 trap on-exit EXIT
 
+# NOTE: Write the PID file before creating the FIFO so that a client never
+#       sees the FIFO without a PID file and mistakes it for a stale one.
+echo $$ > "$PID_FILE" || exit
+EXIT_CMDS+=('rm -f "$PID_FILE"')
 mkfifo -m 0600 "$CMD_FIFO" || exit
 EXIT_CMDS+=('rm -f "$CMD_FIFO"')
 
