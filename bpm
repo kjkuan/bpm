@@ -42,6 +42,13 @@ Environment:
 EOF
 }
 
+# Bash 4.4 is needed for, e.g., $! of a process substitution (used by the
+# client). (Checked again after the re-exec below, as that may run another bash.)
+if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
+    echo "${0##*/}: Bash 4.4 or newer is required; this is Bash $BASH_VERSION." >&2
+    exit 1
+fi
+
 # For some reason, running in bash interactive mode seems to be needed to have enough
 # time to be able to wait for pids after they are killed.
 if [[ $- != *i* ]]; then
