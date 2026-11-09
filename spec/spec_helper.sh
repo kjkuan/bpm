@@ -20,6 +20,11 @@ Proc/idle () { sleep 300; }
 Proc/fails () { sleep 0.3; echo failing; exit 3; }
 Proc/selfterm () { sleep 0.3; kill -TERM $BASHPID; sleep 5; }
 Proc/selfkill () { sleep 0.3; kill -KILL $BASHPID; }
+Proc/stubborn () {
+    trap '' TERM  # (inherited by its children too)
+    echo $BASHPID > stubborn.pid
+    while :; do sleep 0.2; done
+}
 Proc/family () {
     # A child, and a grandchild (in a nested subshell), all recorded.
     sleep 300 & echo $! >> family.pids

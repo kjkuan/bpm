@@ -13,7 +13,7 @@ Describe 'bpm without a server'
   It 'lists the defined processes'
     When call bpm list
     The status should be success
-    The output should eq "$(printf '%s\n' counter fails family idle selfkill selfterm)"
+    The output should eq "$(printf '%s\n' counter fails family idle selfkill selfterm stubborn)"
   End
 
   It 'refuses other commands'

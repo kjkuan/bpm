@@ -32,6 +32,12 @@ Commands:
     stop [-s SIGNAL] [NAME_1 NAME_2 ...]
         Stops (kill) the named processes with SIGNAL (defaults to the TERM signal).
         Stops all started and running processes if the names are omitted.
+        A process still running after BPM_STOP_TIMEOUT seconds is killed with KILL.
+
+Environment:
+    BPM_STOP_TIMEOUT
+        Seconds to wait for a process to stop before killing it (default: 5).
+        Read when the server starts.
 
 EOF
 }
@@ -69,6 +75,10 @@ unset -v option
 shift $(( OPTIND - 1 ))
 
 [[ -e $PROCFILE ]] || die "Procfile not found: $PROCFILE"
+
+STOP_TIMEOUT=${BPM_STOP_TIMEOUT:-5}
+[[ $STOP_TIMEOUT =~ ^[0-9]+$ ]] ||
+    die "BPM_STOP_TIMEOUT must be a whole number of seconds: $STOP_TIMEOUT"
 
 load-procs () {
     local procs defs
@@ -265,12 +275,26 @@ stop-process () {
     #
     # Tell the SIGCHLD handler (wait-for-procs) to leave this process to us.
     PROCS[$name@stopping]=x
-    kill -s $OPT_SIGNAL -$pid; local rc=$?
+    local rc=0 stopped="stopped."
 
-    if (( ! $rc )) || is-pid-gone $pid; then
-        # The process' exit status goes into PROCS; stopping it succeeded.
-        wait $pid; PROCS[$name@status]=$?; rc=0
-        log "Process $name ($pid) stopped."
+    # Give the process group STOP_TIMEOUT seconds to exit, then KILL it, so
+    # that a process ignoring the signal can't hang the server.
+    if kill -s $OPT_SIGNAL -$pid 2>/dev/null; then
+        if ! is-pid-gone $pid "$STOP_TIMEOUT"; then
+            kill -s KILL -$pid 2>/dev/null
+            stopped="didn't stop within ${STOP_TIMEOUT}s; killed it."
+            is-pid-gone $pid 5 || rc=1
+        fi
+    else
+        # kill failed; fine if the group is already gone, though.
+        is-pid-gone $pid 0 || rc=1
+    fi
+
+    if (( ! rc )); then
+        # The whole group is gone, so this doesn't block. The process' exit
+        # status goes into PROCS; stopping it succeeded.
+        wait $pid; PROCS[$name@status]=$?
+        log "Process $name ($pid) $stopped"
     else
         log "Failed stopping $name ($pid)."
     fi
@@ -278,12 +302,15 @@ stop-process () {
     return $rc
 }
 
+# Usage: is-pid-gone PGID SECONDS
+# Waits up to SECONDS for all processes in the process group PGID to exit.
 is-pid-gone () {
-    local timeout=${timeout:-5}
+    local tries=$(( ${2:?} * 10 ))
     while kill -0 -${1:?} >/dev/null 2>&1; do
-        (( timeout-- > 0 )) && sleep 1 || return 1 # timed out
+        (( tries-- > 0 )) || return 1 # timed out
+        sleep 0.1
     done
-    return 0 #  no pids are part of the process group
+    return 0 # no pids are part of the process group
 }
 
 list-all-status () {
