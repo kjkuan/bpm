@@ -420,7 +420,16 @@ wait-for-procs () {
     done
 }
 
-trap 'SHUTDOWN=x REPLY_LOCAL=x; stop-all; reply; exit' INT
+# Stops all processes and exits, on Ctrl-C (INT), the terminal closing (HUP)
+# or a plain kill (TERM; otherwise ignored since bpm runs as an interactive
+# shell). Without this, on HUP bpm would exit leaving its processes running.
+shutdown () {
+    [[ ! $SHUTDOWN ]] || return 0  # already shutting down
+    SHUTDOWN=x REPLY_LOCAL=x
+    stop-all; reply
+    exit
+}
+trap shutdown INT HUP TERM
 
 LOG_DIR=$(mktemp -d) || die "Failed creating a temporary logging directory!"
 echo "Logging to $LOG_DIR ..."

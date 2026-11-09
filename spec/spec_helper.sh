@@ -13,10 +13,11 @@ setup_workdir () {
     WORK=$(mktemp -d "${SHELLSPEC_TMPBASE:-${TMPDIR:-/tmp}}/bpm-spec.XXXXXX")
     cat > "$WORK/Procfile.sh" <<'EOF'
 Proc/counter () {
-    trap 'echo "counter done"' EXIT
+    echo $BASHPID > counter.pid
+    trap 'echo "counter done"; echo done > counter.exit' EXIT
     while :; do echo tick; sleep 0.2; done
 }
-Proc/idle () { sleep 300; }
+Proc/idle () { echo $BASHPID > idle.pid; sleep 300; }
 Proc/fails () { sleep 0.3; echo failing; exit 3; }
 Proc/selfterm () { sleep 0.3; kill -TERM $BASHPID; sleep 5; }
 Proc/selfkill () { sleep 0.3; kill -KILL $BASHPID; }
@@ -90,7 +91,8 @@ wait_until () {
     done
 }
 
-server_out () { grep -Ev "$BPM_NOISE" "$WORK/server.out" | sed 's/\x1b\[[0-9;]*m//g'; }
+# (tr: output from a server run in a terminal has CRLF line endings.)
+server_out () { grep -Ev "$BPM_NOISE" "$WORK/server.out" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r'; }
 server_has () { server_out | grep -qF -- "$1"; }
 log_dir () { server_out | sed -n 's/^Logging to \(.*\) \.\.\.$/\1/p'; }
 
