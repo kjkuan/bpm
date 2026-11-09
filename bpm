@@ -232,7 +232,7 @@ stop-process () {
     #       SIGCHLD handler (wait-for-pid). Therefore, it's unlikely that
     #       we'll be killing a reused PID next.
     #
-    kill -s $OPT_SIGNAL -$pid; rc=$?
+    kill -s $OPT_SIGNAL -$pid; local rc=$?
 
     if (( ! $rc )) || is-pid-gone $pid; then
         wait $pid; rc=$?; PROCS[$name@status]=$rc
