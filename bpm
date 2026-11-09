@@ -238,7 +238,8 @@ start-process () {
     (trap '' INT TERM
      color_on=$(echo -e "\e[38;5;${PROC_COLORS[$name]}m")
      color_off=$(echo -e "\e[0m")
-     while IFS= read -r line; do
+     # (The || part keeps a last line that has no trailing newline.)
+     while IFS= read -r line || [[ $line ]]; do
          [[ ! $OPT_TIMESTAMP ]] || printf -v time '%(%T)T' -1
          line_prefix=${color_on}${time:+$time }${log_prefix}${color_off}
          printf '%s%s\n' "$line_prefix" "$line"
