@@ -27,6 +27,13 @@ Describe 'bpm logs'
     The output should eq 'Unknown process name: nosuch'
   End
 
+  It "gives viewers existing log files, even for processes not started yet"
+    # cat, like lnav, fails on a file that doesn't exist.
+    view_logs () { BPM_LOG_VIEWER=cat bpm logs counter fails > /dev/null; }
+    When call view_logs
+    The status should be success
+  End
+
   It 'follows the logs with BPM_LOG_VIEWER'
     view_counter_log () { BPM_LOG_VIEWER='grep -m1 -o tick' bpm logs counter; }
     When call view_counter_log

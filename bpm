@@ -538,6 +538,11 @@ LOG_DIR=$(mktemp -d) || die "Failed creating a temporary logging directory!"
 echo "Logging to $LOG_DIR ..."
 EXIT_CMDS+=('rm -rf "$LOG_DIR"')
 
+# Create every process' log file up front, so that the paths given out by
+# `bpm logs` always exist; some log viewers (e.g., lnav) refuse to open a
+# file that doesn't, i.e., the log of a process not started yet.
+for name in $(list-all); do : > "$LOG_DIR/$name.log"; done; unset -v name
+
 # DEBUG:
 #exec {BASH_XTRACEFD}>bpm.trace; set -x
 
