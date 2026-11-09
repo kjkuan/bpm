@@ -71,8 +71,9 @@ shift $(( OPTIND - 1 ))
 [[ -e $PROCFILE ]] || die "Procfile not found: $PROCFILE"
 
 load-procs () {
-    local procs
-    eval "$(
+    local procs defs
+    # NOTE: die below only exits this subshell, so check its status here.
+    defs=$(
         source "$PROCFILE" >/dev/null
         procs=$(declare -F | cut -d' ' -f3 | grep ^Proc/)
         if [[ $procs ]]; then
@@ -84,7 +85,8 @@ load-procs () {
             declare -f $procs
             declare -p procs
         fi
-    )"
+    ) || exit 1
+    eval "$defs"
     procs=$(echo "$procs" | cut -d/ -f2)
     [[ $procs ]] || return 0
 
