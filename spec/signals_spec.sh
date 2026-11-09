@@ -38,15 +38,7 @@ Describe 'the server shutting down on a signal'
   End
 
   Describe 'when its terminal is closed'
-    # Runs the server in a pseudo-terminal, via script.
-    start_in_terminal () {
-      script -qfec "cd '$WORK' && exec '$BPM' start counter idle" /dev/null \
-        > "$WORK/server.out" 2>&1 < /dev/null &
-      SCRIPT_PID=$!
-      disown "$SCRIPT_PID"
-      wait_until 5 server_ready && wait_until 3 procs_recorded
-    }
-    BeforeEach 'start_in_terminal'
+    BeforeEach 'start_server_in_terminal counter idle && wait_until 3 procs_recorded'
 
     close_terminal () {
       local pid

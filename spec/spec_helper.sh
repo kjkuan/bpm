@@ -134,6 +134,17 @@ start_server () {
     bpm list > /dev/null
 }
 
+# start_server_in_terminal [START ARGS...]: like start_server, but runs the
+# server in a pseudo-terminal, via script (whose PID is in SCRIPT_PID; killing
+# it closes the terminal).
+start_server_in_terminal () {
+    script -qfec "cd '$WORK' && exec '$BPM' start $*" /dev/null \
+        > "$WORK/server.out" 2>&1 < /dev/null &
+    SCRIPT_PID=$!
+    disown "$SCRIPT_PID"
+    wait_until 5 server_ready
+}
+
 server_ready () { server_pid > /dev/null && test -p "$WORK/.bpmfifo"; }
 
 # The server's PID, if one is running for $WORK.

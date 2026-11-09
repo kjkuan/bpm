@@ -45,7 +45,7 @@ Describe 'bpm restart of a process started with -t'
   BeforeEach 'setup_workdir' 'start_server -t counter'
   AfterEach 'cleanup_workdir'
 
-  first_log_line () { sed -n '1s/\x1b\[[0-9;]*m//gp' "$(log_dir)/counter.log"; }
+  first_log_line () { sed -n '1{s/\x1b\[[0-9;]*m//g;p}' "$(log_dir)/counter.log"; }
   logged () { [[ $(first_log_line) ]]; }
 
   It 'keeps the timestamps'

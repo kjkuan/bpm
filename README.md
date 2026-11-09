@@ -142,6 +142,10 @@ Each process logs to `NAME.log` in a temporary directory, shown when the server
 starts (`Logging to ...`), which is removed when the server exits. Restarting a
 process starts its log afresh.
 
+Each log line is prefixed with the process' name, in a color of its own if the
+server's output is a terminal (and `NO_COLOR` isn't set). The colors are written
+into the log files.
+
 Use `bpm logs [NAME...]` to follow the logs (see `BPM_LOG_VIEWER` below), or
 `bpm logs -p [NAME...]` to print the log files' paths, e.g., for other tools.
 
@@ -152,6 +156,9 @@ Use `bpm logs [NAME...]` to follow the logs (see `BPM_LOG_VIEWER` below), or
   it starts, so set it for `bpm start`:
 
       BPM_STOP_TIMEOUT=10 ./bpm start
+
+- `NO_COLOR`: if set (to anything), log lines aren't colored. They aren't either
+  when the server's output isn't a terminal. See https://no-color.org.
 
 - `BPM_LOG_VIEWER`: the command `bpm logs` follows the logs with, given the log
   files as arguments (default: `tail -qF`). It's read by `bpm logs` itself, so it

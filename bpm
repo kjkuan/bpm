@@ -50,6 +50,10 @@ Environment:
         Seconds to wait for a process to stop before killing it (default: 5).
         Read when the server starts.
 
+    NO_COLOR
+        If set (to anything), log lines aren't colored. They aren't either when
+        the server's output isn't a terminal.
+
     BPM_LOG_VIEWER
         The command to follow logs with, given the log files as arguments
         (default: tail -qF). E.g., BPM_LOG_VIEWER=lnav. Read by the logs command.
@@ -316,8 +320,11 @@ start-process () {
     #       until the process closes its output, instead of dropping the
     #       process' last lines. (SIGKILL can't be ignored, of course.)
     (trap '' INT TERM
-     color_on=$(echo -e "\e[38;5;${PROC_COLORS[$name]}m")
-     color_off=$(echo -e "\e[0m")
+     color_on= color_off=
+     if [[ $USE_COLOR ]]; then
+         color_on=$(echo -e "\e[38;5;${PROC_COLORS[$name]}m")
+         color_off=$(echo -e "\e[0m")
+     fi
      # (The || part keeps a last line that has no trailing newline.)
      while IFS= read -r line || [[ $line ]]; do
          [[ ! $OPT_TIMESTAMP ]] || printf -v time '%(%T)T' -1
@@ -563,6 +570,11 @@ shutdown () {
     exit
 }
 trap shutdown INT HUP TERM
+
+# Colored log line prefixes only for a terminal, and unless NO_COLOR is set
+# (https://no-color.org). They're written into the log files.
+USE_COLOR=
+[[ ! -t 1 || ${NO_COLOR:-} ]] || USE_COLOR=x
 
 LOG_DIR=$(mktemp -d) || die "Failed creating a temporary logging directory!"
 echo "Logging to $LOG_DIR ..."
