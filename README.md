@@ -34,7 +34,8 @@ Then, in another shell, we can check the process statuses, as well as, starting 
     ./bpm stop
 
 Also, one can hit `Ctrl-C` in the log output window, where the first process was started,
-to stop all processes and quit the **BPM** monitoring process.
+to stop all processes and quit the **BPM** monitoring process. Closing that window, or
+killing the **BPM** server process with `kill` (`TERM`), does the same.
 
 ## Procfile.sh
 
@@ -101,8 +102,12 @@ When a process runs:
 `bpm stop [-s SIGNAL] NAME` sends `SIGNAL` (`TERM` by default; `INT` and `KILL` are
 also allowed) to the process' group. If the group is still running after
 `BPM_STOP_TIMEOUT` seconds (5 by default, read when the server starts), BPM kills
-it with `KILL`. `Ctrl-C` in the server's window stops all running processes the
-same way.
+it with `KILL`.
+
+The BPM server stops all running processes the same way, and then exits, on
+`Ctrl-C` (`INT`) in its window, when its window (terminal) is closed (`HUP`), or
+on `TERM` (e.g., `kill SERVER_PID`). Only `KILL` stops the server without
+stopping its processes, leaving them running.
 
 On `TERM` or `INT`, a process' `EXIT` trap runs, so it can clean up there (as `p1`
 in the example [Procfile.sh](Procfile.sh) does). Nothing runs on `KILL`.
