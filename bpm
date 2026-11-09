@@ -80,10 +80,18 @@ STOP_TIMEOUT=${BPM_STOP_TIMEOUT:-5}
 [[ $STOP_TIMEOUT =~ ^[0-9]+$ ]] ||
     die "BPM_STOP_TIMEOUT must be a whole number of seconds: $STOP_TIMEOUT"
 
+# The directory processes start in: the Procfile's directory, or wherever
+# the Procfile cd-ed to (see load-procs).
+PROC_DIR=
+
 load-procs () {
     local procs defs
     # NOTE: die below only exits this subshell, so check its status here.
+    #       Only the Proc/* functions (and the directory the Procfile ended
+    #       up in) are taken from it, so that its other commands and globals
+    #       can't interfere with bpm.
     defs=$(
+        cd "${PROCFILE%/*}" || exit
         source "$PROCFILE" >/dev/null
         procs=$(declare -F | cut -d' ' -f3 | grep ^Proc/)
         if [[ $procs ]]; then
@@ -94,6 +102,7 @@ load-procs () {
             [[ ! $error ]] || die "Failed loading $PROCFILE"
             declare -f $procs
             declare -p procs
+            printf 'PROC_DIR=%q\n' "$PWD"
         fi
     ) || exit 1
     eval "$defs"
@@ -209,6 +218,7 @@ reply () {
 run-proc () {
     set +o pipefail
     trap "exit $(( 128 + $(kill -l TERM) ))" TERM
+    cd "$PROC_DIR" || exit
     "Proc/$1"
 }
 

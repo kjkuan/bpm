@@ -30,6 +30,7 @@ Proc/stubborn () {
     echo $BASHPID > stubborn.pid
     while :; do sleep 0.2; done
 }
+Proc/where () { pwd; }
 Proc/family () {
     # A child, and a grandchild (in a nested subshell), all recorded.
     sleep 300 & echo $! >> family.pids
@@ -90,8 +91,13 @@ log_dir () { server_out | sed -n 's/^Logging to \(.*\) \.\.\.$/\1/p'; }
 
 # start_server [START ARGS...]: starts a bpm server in the background,
 # logging to $WORK/server.out, and waits until it accepts commands.
+# Set SERVER_CWD to start it from another directory (with -f pointing to
+# $WORK/Procfile.sh).
 start_server () {
-    (cd "$WORK" && exec timeout -k 1 60 "$BPM" start "$@") > "$WORK/server.out" 2>&1 &
+    local opts=()
+    [[ ! ${SERVER_CWD:-} ]] || opts=(-f "$WORK/Procfile.sh")
+    (cd "${SERVER_CWD:-$WORK}" && exec timeout -k 1 60 "$BPM" "${opts[@]}" start "$@") \
+        > "$WORK/server.out" 2>&1 &
     SERVER_TIMEOUT_PID=$!  # the timeout process (the subshell exec'ed it)
     disown "$SERVER_TIMEOUT_PID"  # no "Killed" job notices if we kill it
     # Wait for the server's own FIFO; a stale one may already be there.
@@ -135,7 +141,7 @@ stop_server () {
 stop_server_timeout () {
     local pid=${SERVER_TIMEOUT_PID:-}
     [[ $pid =~ ^[0-9]+$ ]] || return 0
-    ps -o args= -p "$pid" 2>/dev/null | grep -q "^timeout -k 1 60 $BPM start" || return 0
+    ps -o args= -p "$pid" 2>/dev/null | grep -q "^timeout -k 1 60 $BPM " || return 0
     # timeout passes TERM on to bpm, which ignores it, then KILLs it a second
     # later and exits.
     kill -TERM "$pid" 2>/dev/null
