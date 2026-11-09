@@ -357,7 +357,10 @@ EXIT_CMDS+=('rm -rf "$LOG_DIR"')
 #exec {BASH_XTRACEFD}>bpm.trace; set -x
 
 display-logs & tail_pid=$!
-EXIT_CMDS+=('kill $tail_pid >/dev/null 2>&1')
+# NOTE: Give tail a moment to show the processes' last lines (e.g., what they
+#       print when stopped on Ctrl-C) before killing it. tail -F may poll the
+#       files only once per second.
+EXIT_CMDS+=('sleep 1; kill $tail_pid >/dev/null 2>&1')
 
 
 action= args=
