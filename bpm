@@ -219,6 +219,13 @@ run-proc () {
     set +o pipefail
     trap "exit $(( 128 + $(kill -l TERM) ))" TERM
     cd "$PROC_DIR" || exit
+
+    # Leave only the Proc/* functions, so that bpm's own functions (e.g., log)
+    # don't shadow commands the process runs.
+    local f
+    for f in $(declare -F | cut -d' ' -f3); do
+        [[ $f == Proc/* ]] || unset -f "$f"
+    done
     "Proc/$1"
 }
 

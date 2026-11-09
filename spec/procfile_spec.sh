@@ -32,3 +32,21 @@ Describe "a process' working directory"
     The output should eq "$WORK/sub"
   End
 End
+
+Describe "a process' shell functions"
+  BeforeEach 'setup_workdir' 'start_server funcs'
+  AfterEach 'cleanup_workdir'
+
+  funcs_log () {
+    wait_until 3 funcs_exited || return 1
+    sed 's/\x1b\[[0-9;]*m//g' "$(log_dir)/funcs.log" | sed 's/^funcs *| //'
+  }
+  funcs_exited () { [[ $(status_of funcs) == Exited* ]]; }
+
+  It "are only the Proc/* ones, not bpm's own"
+    When call funcs_log
+    The line 1 of output should eq none
+    The line 2 of output should eq 'Proc/where callable'
+    The lines of output should eq 2
+  End
+End

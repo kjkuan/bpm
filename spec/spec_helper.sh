@@ -31,6 +31,11 @@ Proc/stubborn () {
     while :; do sleep 0.2; done
 }
 Proc/where () { pwd; }
+Proc/funcs () {
+    # Any functions other than Proc/* ones, and whether Proc/where is callable.
+    declare -F | cut -d' ' -f3 | grep -v '^Proc/' || echo none
+    Proc/where > /dev/null && echo 'Proc/where callable'
+}
 Proc/family () {
     # A child, and a grandchild (in a nested subshell), all recorded.
     sleep 300 & echo $! >> family.pids
