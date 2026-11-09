@@ -1,0 +1,31 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellSpec
+        env:
+          SHELLSPEC_VERSION: 0.28.1
+        run: |
+          git clone --depth 1 --branch "$SHELLSPEC_VERSION" \
+            https://github.com/shellspec/shellspec.git "$HOME/.local/lib/shellspec"
+          mkdir -p "$HOME/.local/bin"
+          ln -s "$HOME/.local/lib/shellspec/shellspec" "$HOME/.local/bin/shellspec"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Show versions
+        run: |
+          bash --version | head -1
+          shellspec --version
+
+      - name: Run tests
+        run: shellspec
