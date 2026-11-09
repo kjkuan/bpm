@@ -145,6 +145,11 @@ fi
 
 # --- Running as a server ----------------
 
+# Make a process' exit status (from wait) be the process' own status rather
+# than its log writer's, which is the last command in the pipeline and
+# normally exits 0.
+set -o pipefail
+
 declare -A PIDS=()  # process_name -> pid
 declare -A PROCS=() # process_name@attr_name -> value
 
@@ -178,6 +183,20 @@ reply () {
 }
 
 
+# Runs Proc/NAME; meant to be run in the (sub)shell of its pipeline.
+#
+# NOTE: Since BPM runs as an interactive shell, a subshell of it that's killed
+#       by SIGTERM dies without running its EXIT trap. Trap TERM so that the
+#       process' EXIT trap still runs, like it would under a non-interactive
+#       shell. (Setting this trap in a { ...; } group in the pipeline, rather
+#       than in a function, doesn't work.) Also, don't leak pipefail (see
+#       above) into the user's process.
+run-proc () {
+    set +o pipefail
+    trap "exit $(( 128 + $(kill -l TERM) ))" TERM
+    "Proc/$1"
+}
+
 start-process () {
     local name=${1:?} pid=${PIDS[$1]:-}
 
@@ -195,9 +214,14 @@ start-process () {
     local log_prefix=$(printf "%-${PROC_MAX_WIDTH:-20}s| " "$name")
 
     set -m
-    "Proc/$name" </dev/null 2>&1 \
+    run-proc "$name" </dev/null 2>&1 \
          |
-    (color_on=$(echo -e "\e[38;5;${PROC_COLORS[$name]}m")
+    # NOTE: The log writer is in the same process group as the process, so it
+    #       gets the stop signal too. Ignore it so the writer keeps reading
+    #       until the process closes its output, instead of dropping the
+    #       process' last lines. (SIGKILL can't be ignored, of course.)
+    (trap '' INT TERM
+     color_on=$(echo -e "\e[38;5;${PROC_COLORS[$name]}m")
      color_off=$(echo -e "\e[0m")
      while IFS= read -r line; do
          [[ ! $OPT_TIMESTAMP ]] || printf -v time '%(%T)T' -1
@@ -237,7 +261,8 @@ stop-process () {
     kill -s $OPT_SIGNAL -$pid; local rc=$?
 
     if (( ! $rc )) || is-pid-gone $pid; then
-        wait $pid; rc=$?; PROCS[$name@status]=$rc
+        # The process' exit status goes into PROCS; stopping it succeeded.
+        wait $pid; PROCS[$name@status]=$?; rc=0
         log "Process $name ($pid) stopped."
     else
         log "Failed stopping $name ($pid)."
