@@ -357,8 +357,9 @@ list-all-status () {
 start-all () {
     local OPT_TIMESTAMP=
     if [[ ${1:-} && $1 == -t ]]; then OPT_TIMESTAMP=x; shift; fi
-    local name names; (( $# )) && names="$*" || names=$(list-all)
-    for name in $names; do start-process "$name"; done
+    local name names=("$@")
+    (( $# )) || mapfile -t names < <(list-all)
+    for name in "${names[@]}"; do start-process "$name"; done
 }
 
 stop-all () {
@@ -374,17 +375,15 @@ stop-all () {
         }
         set -- "${@:3}"
     fi
-    local name names
-    if (( $# )); then
-        names="$*"
-    else
+    local name names=("$@")
+    if (( ! $# )); then
         # Only the started and still running ones, as documented; this avoids
         # "was not started" / "was already stopped" noise, e.g., on Ctrl-C.
         for name in $(list-all); do
-            [[ ${PIDS[$name]:-} && ! ${PROCS[$name@status]:-} ]] && names+=" $name"
+            [[ ${PIDS[$name]:-} && ! ${PROCS[$name@status]:-} ]] && names+=("$name")
         done
     fi
-    for name in $names; do stop-process "$name"; done
+    for name in "${names[@]}"; do stop-process "$name"; done
 }
 
 display-logs () {
@@ -445,28 +444,31 @@ display-logs & tail_pid=$!
 EXIT_CMDS+=('sleep 1; kill $tail_pid >/dev/null 2>&1')
 
 
-action= args=
+# NOTE: The command's arguments are kept in an array, so that they're split
+#       into words but never glob-expanded (against the server's directory).
+action= args=()
 if (( $# )); then
-    action=$1 args=${*:2} REPLY_LOCAL=x
+    action=$1 args=("${@:2}") REPLY_LOCAL=x
 fi
 
 trap wait-for-procs CHLD
 
 until [[ $SHUTDOWN ]]; do
     [[ $action ]] || {
-        read -r action args < "$CMD_FIFO"
+        read -r -a args < "$CMD_FIFO"
+        action=${args[0]:-} args=("${args[@]:1}")
 
         [[ $action ]] || { reply; continue; }
     }
     case $action in
         start|stop)
-            $action-all $args; reply
+            $action-all "${args[@]}"; reply
             ;;
         list)
             list-all-status; reply 0
             ;;
-        *) log "Unknown command: $action $args"; reply 1
+        *) log "Unknown command: $action ${args[*]}"; reply 1
             ;;
     esac
-    action= args= REPLY_LOCAL=
+    action= args=() REPLY_LOCAL=
 done
