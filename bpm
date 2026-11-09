@@ -149,9 +149,37 @@ fi
 # --- Running as a client ----------------
 if [[ -e $CMD_FIFO ]]; then
     send "$*"
-    response=$(cat "$CMD_FIFO")
+
+    # Read the reply via a background cat, checking every half a second
+    # while waiting that the server is still alive; if it died before
+    # replying, nothing would ever open the FIFO to reply and the cat (and
+    # this client) would wait forever.
+    exec {reply_fd}< <(exec cat "$CMD_FIFO")
+    cat_pid=$!
+    response=
+    while :; do
+        if IFS= read -r -t 0.5 -u $reply_fd line; then
+            response+=$line$'\n'
+        elif (( $? > 128 )); then  # timed out
+            server-alive && continue
+            kill "$cat_pid" 2>/dev/null
+            break
+        else  # end of the reply
+            response+=$line  # (a last line without a newline, if any)
+            break
+        fi
+    done
+    exec {reply_fd}<&-
+    response=${response%$'\n'}
+
+    rc=${response##*$'\n'}  # the reply ends with the command's exit status
+    if [[ ! $rc =~ ^[0-9]+$ ]]; then
+        # No (complete) reply; e.g., the server exited while handling it.
+        [[ ! $response ]] || printf "%s\n" "$response"
+        die "No response from the BPM server; it may have exited."
+    fi
     [[ ! ${response%$'\n'*} ]] || printf "%s\n" "${response%$'\n'*}"
-    exit "${response##*$'\n'}"
+    exit "$rc"
 
 elif [[ $1 == list ]]; then
     list-all
