@@ -34,10 +34,25 @@ Commands:
         Stops all started and running processes if the names are omitted.
         A process still running after BPM_STOP_TIMEOUT seconds is killed with KILL.
 
+    restart [NAME_1 NAME_2 ...]
+        Stops (if running) and starts the named processes again, with the -t setting
+        they were started with. Restarts all running processes if the names are omitted.
+
+    logs [-p] [NAME_1 NAME_2 ...]
+        Follows the logs of the named processes (all processes if the names are
+        omitted) with BPM_LOG_VIEWER. With -p, prints the log files' paths instead.
+
+    quit
+        Stops all running processes, and then the BPM server.
+
 Environment:
     BPM_STOP_TIMEOUT
         Seconds to wait for a process to stop before killing it (default: 5).
         Read when the server starts.
+
+    BPM_LOG_VIEWER
+        The command to follow logs with, given the log files as arguments
+        (default: tail -qF). E.g., BPM_LOG_VIEWER=lnav.
 
 EOF
 }
@@ -155,7 +170,13 @@ fi
 
 # --- Running as a client ----------------
 if [[ -e $CMD_FIFO ]]; then
-    send "$*"
+    # logs: the server replies with the log files' paths, which are printed
+    # (-p) or given to the log viewer here.
+    cmd=("$@") logs_print=
+    if [[ ${1:-} == logs && ${2:-} == -p ]]; then
+        logs_print=x cmd=(logs "${@:3}")
+    fi
+    send "${cmd[*]}"
 
     # Read the reply via a background cat, checking every half a second
     # while waiting that the server is still alive; if it died before
@@ -184,6 +205,12 @@ if [[ -e $CMD_FIFO ]]; then
         # No (complete) reply; e.g., the server exited while handling it.
         [[ ! $response ]] || printf "%s\n" "$response"
         die "No response from the BPM server; it may have exited."
+    fi
+    if [[ ${cmd[0]:-} == logs && $rc == 0 && ! $logs_print ]]; then
+        [[ ${response%$'\n'*} ]] || die "No processes are defined."
+        mapfile -t log_files <<< "${response%$'\n'*}"
+        read -r -a viewer <<< "${BPM_LOG_VIEWER:-tail -qF}"
+        exec "${viewer[@]}" "${log_files[@]}"
     fi
     [[ ! ${response%$'\n'*} ]] || printf "%s\n" "${response%$'\n'*}"
     exit "$rc"
@@ -304,7 +331,11 @@ start-process () {
 
     PIDS[$name]=$pid
     PROCS[$name@status]=
+    PROCS[$name@timestamp]=$OPT_TIMESTAMP  # (for restart)
 }
+
+# Whether the process NAME was started and is still running.
+is-running () { [[ ${PIDS[$1]:-} && ! ${PROCS[$1@status]:-} ]]; }
 
 stop-process () {
     local name=${1:?} pid=${PIDS[$1]:-}
@@ -415,10 +446,47 @@ stop-all () {
         # Only the started and still running ones, as documented; this avoids
         # "was not started" / "was already stopped" noise, e.g., on Ctrl-C.
         for name in $(list-all); do
-            [[ ${PIDS[$name]:-} && ! ${PROCS[$name@status]:-} ]] && names+=("$name")
+            is-running "$name" && names+=("$name")
         done
     fi
     for name in "${names[@]}"; do stop-process "$name"; done
+}
+
+restart-all () {
+    local name names=("$@") rc=0
+    if (( ! $# )); then
+        # Only the running ones, as documented.
+        for name in $(list-all); do
+            is-running "$name" && names+=("$name")
+        done
+    fi
+    for name in "${names[@]}"; do
+        declare -F "Proc/$name" >/dev/null || {
+            log "Unknown process name: $name"
+            rc=1; continue
+        }
+        if is-running "$name"; then
+            stop-process "$name" || { rc=1; continue; }
+        fi
+        OPT_TIMESTAMP=${PROCS[$name@timestamp]:-} start-process "$name" || rc=1
+    done
+    return $rc
+}
+
+# Replies with the log files' paths of the named processes (all if none), or
+# only with errors if any of them is unknown.
+log-paths () {
+    local name names=("$@") paths=()
+    (( $# )) || mapfile -t names < <(list-all)
+    for name in "${names[@]}"; do
+        if declare -F "Proc/$name" >/dev/null; then
+            paths+=("$LOG_DIR/$name.log")
+        else
+            log "Unknown process name: $name"
+        fi
+    done
+    (( ! ${#RESPONSE[@]} )) || return 1
+    for name in "${paths[@]}"; do log "$name"; done
 }
 
 display-logs () {
@@ -496,11 +564,21 @@ until [[ $SHUTDOWN ]]; do
         [[ $action ]] || { reply; continue; }
     }
     case $action in
-        start|stop)
+        start|stop|restart)
             $action-all "${args[@]}"; reply
             ;;
         list)
             list-all-status; reply 0
+            ;;
+        logs)
+            log-paths "${args[@]}"; reply
+            ;;
+        quit)
+            # Like shutdown, but replying to the client.
+            SHUTDOWN=x
+            echo "Quitting (bpm quit) ..." >&2
+            stop-all; reply 0
+            exit
             ;;
         *) log "Unknown command: $action ${args[*]}"; reply 1
             ;;

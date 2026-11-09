@@ -26,16 +26,29 @@ Then, in another shell, we can check the process statuses, as well as, starting 
     ./bpm list
     ./bpm start p1
 
+    # ... or in one go
+    ./bpm restart p1
+
     # Stop p2
     ./bpm stop p2
     ./bpm list
 
+    # Follow p1's log (with `tail -qF`, or whatever $BPM_LOG_VIEWER says),
+    # or print the paths of all the log files
+    ./bpm logs p1
+    ./bpm logs -p
+
     # Stop all processes
     ./bpm stop
+
+    # Stop all processes, and the BPM server
+    ./bpm quit
 
 Also, one can hit `Ctrl-C` in the log output window, where the first process was started,
 to stop all processes and quit the **BPM** monitoring process. Closing that window, or
 killing the **BPM** server process with `kill` (`TERM`), does the same.
+
+Run `./bpm -h` for all the commands and options.
 
 ## Procfile.sh
 
