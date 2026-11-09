@@ -64,9 +64,24 @@ pids_gone () {
 family_gone () { pids_gone $(cat "$WORK/family.pids"); }
 
 cleanup_workdir () {
-    stop_server
+    kill_server
     kill_leftover_procs
     rm -rf "$WORK"
+}
+
+# Quickly gets rid of the server, if any, for cleaning up after an example:
+# stops its processes (including ones started by clients, which
+# kill_leftover_procs doesn't know about), then kills it, skipping its
+# graceful shutdown (which waits a second for tail). kill_leftover_procs
+# then cleans up its tail and log directory.
+kill_server () {
+    local pid
+    if pid=$(server_pid); then
+        bpm stop > /dev/null 2>&1
+        kill -KILL "$pid" 2>/dev/null
+        wait_until 3 server_gone "$pid"
+    fi
+    stop_server_timeout
 }
 
 # Runs bpm in the work directory, minus the job-control noise on stderr.
