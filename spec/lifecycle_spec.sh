@@ -27,12 +27,12 @@ Describe 'bpm process lifecycle'
     BeforeEach 'start_server fails selfterm selfkill'
 
     It 'records and reports their exit statuses'
-      all_exited () { ! bpm list | grep -qE '^(fails|selfterm|selfkill) +pid=[0-9]+ *$'; }
+      all_exited () { has_exited fails && has_exited selfterm && has_exited selfkill; }
       When call wait_until 5 all_exited
       The status should be success
-      The value "$(status_of fails)" should eq 'Exited (3)'
-      The value "$(status_of selfterm)" should eq 'Exited (143)'
-      The value "$(status_of selfkill)" should eq 'Exited (137)'
+      The value "$(status_of fails)" should eq 'exited (3)'
+      The value "$(status_of selfterm)" should eq 'killed (SIGTERM)'
+      The value "$(status_of selfkill)" should eq 'killed (SIGKILL)'
       The value "$(server_out)" should match pattern '*Process fails (*) exited (3).*'
       The value "$(server_out)" should match pattern '*Process selfterm (*) was killed by SIGTERM.*'
       The value "$(server_out)" should match pattern '*Process selfkill (*) was killed by SIGKILL.*'

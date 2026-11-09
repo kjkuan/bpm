@@ -4,8 +4,6 @@ Describe 'bpm restart'
   BeforeEach 'setup_workdir' 'start_server counter idle'
   AfterEach 'cleanup_workdir'
 
-  pid_of () { bpm list | awk -v n="$1" '$1 == n { sub(/^pid=/, "", $2); print $2 }'; }
-
   It 'stops and starts a running process again'
     old_pid=
     restart_counter () { old_pid=$(pid_of counter); bpm restart counter; }
@@ -33,7 +31,7 @@ Describe 'bpm restart'
     The line 1 of output should match pattern 'Process counter (*) stopped.'
     The line 2 of output should match pattern 'Started counter (*)'
     The lines of output should eq 2
-    The value "$(status_of idle)" should eq 'Exited (143)'
+    The value "$(status_of idle)" should eq 'killed (SIGTERM)'
   End
 
   It 'rejects an unknown process name'

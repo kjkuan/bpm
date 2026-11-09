@@ -14,7 +14,7 @@ Describe 'stopping a process that ignores TERM'
     When call bpm stop stubborn
     The status should be success
     The output should match pattern "Process stubborn (*) didn't stop within 1s; killed it."
-    The value "$(status_of stubborn)" should eq 'Exited (137)'
+    The value "$(status_of stubborn)" should eq 'killed (SIGKILL)'
     The value "$(stubborn_gone && echo gone)" should eq gone
   End
 

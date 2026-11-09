@@ -9,7 +9,7 @@ Describe "a process' working directory"
     wait_until 3 where_exited || return 1
     sed 's/\x1b\[[0-9;]*m//g' "$(log_dir)/where.log" | sed 's/^where *| //'
   }
-  where_exited () { [[ $(status_of where) == Exited* ]]; }
+  where_exited () { has_exited where; }
 
   It "is the Procfile's directory, even when bpm is started elsewhere"
     start_elsewhere () {
@@ -41,7 +41,7 @@ Describe "a process' shell functions"
     wait_until 3 funcs_exited || return 1
     sed 's/\x1b\[[0-9;]*m//g' "$(log_dir)/funcs.log" | sed 's/^funcs *| //'
   }
-  funcs_exited () { [[ $(status_of funcs) == Exited* ]]; }
+  funcs_exited () { has_exited funcs; }
 
   It "are only the Proc/* ones, not bpm's own"
     When call funcs_log

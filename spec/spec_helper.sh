@@ -191,11 +191,12 @@ kill_leftover_procs () {
     return 0
 }
 
-# status_of NAME: prints the status column of NAME from `bpm list`
-# ("running" while it runs).
-status_of () {
-    bpm list | awk -v n="$1" '
-        $1 == n { $1 = ""; $2 = ""; s = $0; sub(/^ +/, "", s); print (s == "" ? "running" : s) }'
-}
+# status_of NAME / pid_of NAME: prints the STATUS / PID column of NAME from
+# `bpm list` (whose columns are separated by at least two spaces).
+status_of () { bpm list | awk -F '  +' -v n="$1" '$1 == n { print $2 }'; }
+pid_of () { bpm list | awk -F '  +' -v n="$1" '$1 == n { print $3 }'; }
 
 status_is () { [[ $(status_of "$1") == "$2" ]]; }
+
+# Whether the process NAME was started and has exited (or been killed).
+has_exited () { [[ $(status_of "$1") == @(exited|killed)* ]]; }

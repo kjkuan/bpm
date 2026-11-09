@@ -125,8 +125,16 @@ stopping its processes, leaving them running.
 On `TERM` or `INT`, a process' `EXIT` trap runs, so it can clean up there (as `p1`
 in the example [Procfile.sh](Procfile.sh) does). Nothing runs on `KILL`.
 
-`bpm list` shows each process' exit status once it has exited: e.g., `Exited (143)`
-for one stopped with `TERM` (128 + the signal number), or the status it exited with.
+`bpm list` shows each process' status, PID and start time:
+
+    NAME  STATUS            PID     STARTED
+    p1    running           647711  00:44:22, 6s ago
+    p2    killed (SIGTERM)  647716  00:44:22
+    p3    exited (1)        647724  00:44:22
+
+A process is `running`, `not started`, `exited (N)` with the status it exited
+with, or `killed (SIGNAL)` if it ended by a signal (an exit status over 128;
+e.g., when stopped with `TERM`).
 
 ### Logs
 

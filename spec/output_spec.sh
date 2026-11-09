@@ -9,7 +9,7 @@ Describe "a process' output"
     wait_until 3 talker_exited || return 1
     sed 's/\x1b\[[0-9;]*m//g' "$(log_dir)/talker.log"
   }
-  talker_exited () { [[ $(status_of talker) == Exited* ]]; }
+  talker_exited () { has_exited talker; }
 
   Describe 'without timestamps'
     BeforeEach 'start_server talker'

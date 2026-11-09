@@ -333,6 +333,7 @@ start-process () {
     PIDS[$name]=$pid
     PROCS[$name@status]=
     PROCS[$name@timestamp]=$OPT_TIMESTAMP  # (for restart)
+    printf -v "PROCS[$name@started]" '%(%s)T' -1
 }
 
 # Whether the process NAME was started and is still running.
@@ -398,25 +399,35 @@ is-pid-gone () {
     return 0 # no pids are part of the process group
 }
 
+# Replies with a table of the processes: NAME, STATUS (running, exited (N),
+# killed (SIGNAL) or not started), PID and STARTED (the time it was started,
+# and how long ago if it's running).
 list-all-status () {
+    local now; printf -v now '%(%s)T' -1
     local report=$(
-        list-all \
-          |
-        while read -r name; do
-            [[ $name ]] || continue
-            line=("$name") pid=${PIDS[$name]:-} status=${PROCS[$name@status]:-}
-            if [[ $pid ]]; then
-                line+=("pid=$pid")
-            else
-                line+=(-)
-            fi
-            if [[ $status ]]; then
-                line+=("Exited ($status)")
-            fi
-            (IFS=\;; echo "${line[*]}")
-        done \
-         |
-        column -s \; -t
+        { echo "NAME;STATUS;PID;STARTED"
+          list-all \
+            |
+          while read -r name; do
+              [[ $name ]] || continue
+              pid=${PIDS[$name]:-} status=${PROCS[$name@status]:-}
+              started=${PROCS[$name@started]:-}
+              if [[ ! $pid ]]; then
+                  echo "$name;not started;-;-"
+                  continue
+              fi
+              printf -v start_time '%(%T)T' "$started"
+              if [[ ! $status ]]; then
+                  state=running
+                  start_time+=", $(format-duration $(( now - started ))) ago"
+              elif sig=$(signal-of-status "$status"); then
+                  state="killed ($sig)"
+              else
+                  state="exited ($status)"
+              fi
+              echo "$name;$state;$pid;$start_time"
+          done
+        } | column -s \; -t
     )
     log "$report"
 }
@@ -499,10 +510,29 @@ display-logs () {
 # Usage: describe-exit NAME PID STATUS
 describe-exit () {
     local sig
-    if (( $3 > 128 )) && sig=$(kill -l $(( $3 - 128 )) 2>/dev/null); then
-        echo "Process $1 ($2) was killed by SIG${sig#SIG}."
+    if sig=$(signal-of-status "$3"); then
+        echo "Process $1 ($2) was killed by $sig."
     else
         echo "Process $1 ($2) exited ($3)."
+    fi
+}
+
+# Usage: signal-of-status STATUS
+# Prints the signal (e.g., SIGTERM) an exit STATUS (> 128) stands for.
+signal-of-status () {
+    local sig
+    (( $1 > 128 )) && sig=$(kill -l $(( $1 - 128 )) 2>/dev/null) || return 1
+    echo "SIG${sig#SIG}"
+}
+
+# Usage: format-duration SECONDS
+# Prints, e.g., 45s, 3m12s, 2h5m or 1d3h.
+format-duration () {
+    local s=$1
+    if (( s < 60 )); then echo "${s}s"
+    elif (( s < 3600 )); then echo "$(( s / 60 ))m$(( s % 60 ))s"
+    elif (( s < 86400 )); then echo "$(( s / 3600 ))h$(( s % 3600 / 60 ))m"
+    else echo "$(( s / 86400 ))d$(( s % 86400 / 3600 ))h"
     fi
 }
 

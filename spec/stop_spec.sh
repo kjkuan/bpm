@@ -8,21 +8,21 @@ Describe 'bpm stop'
     When call bpm stop counter
     The status should be success
     The output should match pattern 'Process counter (*) stopped.'
-    The value "$(status_of counter)" should eq 'Exited (143)'
+    The value "$(status_of counter)" should eq 'killed (SIGTERM)'
   End
 
   It 'stops a process with the given signal'
     When call bpm stop -s int counter
     The status should be success
     The output should match pattern 'Process counter (*) stopped.'
-    The value "$(status_of counter)" should eq 'Exited (130)'
+    The value "$(status_of counter)" should eq 'killed (SIGINT)'
   End
 
   It 'stops a process with KILL'
     When call bpm stop -s KILL idle
     The status should be success
     The output should match pattern 'Process idle (*) stopped.'
-    The value "$(status_of idle)" should eq 'Exited (137)'
+    The value "$(status_of idle)" should eq 'killed (SIGKILL)'
   End
 
   It "keeps a process' last lines"
